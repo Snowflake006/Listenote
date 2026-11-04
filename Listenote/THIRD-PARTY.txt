@@ -1,0 +1,23 @@
+Third-party software notices
+
+Python 3.12.10: Python Software Foundation License. runtime/LICENSE.txt
+PySide6 / Qt 6.8.3: LGPLv3/GPL/commercial; dynamically loaded and replaceable.
+https://code.qt.io/cgit/pyside/pyside-setup.git/?h=6.8.3
+https://download.qt.io/official_releases/qt/6.8/6.8.3/submodules/
+PyTorch 2.7.1 CPU: BSD-style license, runtime/Lib/site-packages/torch-2.7.1+cpu.dist-info/licenses
+https://github.com/pytorch/pytorch/tree/v2.7.1
+Transformers 4.51.3: Apache 2.0. https://github.com/huggingface/transformers/tree/v4.51.3
+Whisper large-v3-turbo model: MIT license, models/whisper/LICENSE.txt
+https://huggingface.co/openai/whisper-large-v3-turbo
+Noto Sans SC: SIL Open Font License, app/fonts/OFL.txt
+https://github.com/google/fonts/tree/main/ofl/notosanssc
+FFmpeg binary: Gyan essentials build, see tools/FFmpeg-LICENSE.txt for version, build flags and license.
+https://www.gyan.dev/ffmpeg/builds/
+https://github.com/FFmpeg/FFmpeg/tree/615b07170e
+python-docx: MIT license. https://github.com/python-openxml/python-docx
+SoundDevice: MIT license. https://github.com/spatialaudio/python-sounddevice
+All installed package license metadata is preserved under runtime/Lib/site-packages.
+
+Listenote application source: app/main.py and app/startup.py.
+The launcher source is included as Launcher.cs. Runtime libraries are not statically linked.
+No DRM or restriction on replacing the LGPL libraries is applied.

@@ -1,0 +1,17 @@
+# Bundled runtime and large release assets
+/Listenote/runtime/
+/Listenote/tools/*.exe
+/Listenote/models/**/*.safetensors
+/*.zip
+
+# Local data and credentials
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+!.env.example
+*.log
+recordings/
+.DS_Store
+Thumbs.db
