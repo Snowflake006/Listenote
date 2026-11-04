@@ -15,3 +15,5 @@ __pycache__/
 recordings/
 .DS_Store
 Thumbs.db
+/.test-data/
+/Listenote-Windows-x64-v*.zip

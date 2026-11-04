@@ -1,14 +1,18 @@
-import os, sys, json, time, uuid, re, subprocess, tempfile, wave, threading
+import os, sys, json, time, uuid, re, subprocess, tempfile, wave, threading, hashlib
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent))
 os.environ['HF_HUB_OFFLINE']='1'
 os.environ['TRANSFORMERS_OFFLINE']='1'
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QFont, QColor, QPainter, QLinearGradient, QPen, QTextDocument, QFontDatabase, QIcon
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import *
+from ai_summary import DEFAULT_CONFIG, is_local, check_config
+from ai_ui import AISettingsDialog, SummaryWorker
 ROOT=Path(__file__).resolve().parent.parent
 DATA=Path(os.environ.get('LISTENOTE_DATA', str(Path(os.environ.get('LOCALAPPDATA',str(ROOT)))/'Listenote')))
 DATA.mkdir(parents=True,exist_ok=True)
+TAB_KEYS = ['transcript', 'summary', 'ai_summary', 'notes']
 def stamp(t):
     t=int(t); return f'{t//3600:02}:{t//60%60:02}:{t%60:02}'
 def run(args):
@@ -76,17 +80,23 @@ def button(text,slot,primary=False):
 class Window(QMainWindow):
     def __init__(self):
         super().__init__(); QFontDatabase.addApplicationFont(str(ROOT/'app'/'fonts'/'NotoSansSC.ttf')); self.setWindowIcon(QIcon(str(ROOT/'app'/'icon.ico'))); self.job=None; self.current=None; self.rec=None; self.frames=0; self.rec_paused=False
-        self.setWindowTitle('听课 Listenote · 本地课堂笔记'); self.resize(1220,820); self.setMinimumSize(940,680); self.setAcceptDrops(True)
+        self.ai_config=dict(DEFAULT_CONFIG);self.ai_key=''
+        try:
+            saved=json.loads((DATA/'settings'/'ai.json').read_text('utf8'))
+            self.ai_config.update({k:saved[k] for k in DEFAULT_CONFIG if k in saved and isinstance(saved[k],str)})
+        except (OSError,ValueError,TypeError):pass
+        self.setWindowTitle('听课 Listenote · 本地课堂笔记'); self.resize(1280,900); self.setMinimumSize(1080,760); self.setAcceptDrops(True)
         outer=QWidget();self.setCentralWidget(outer); layout=QHBoxLayout(outer);layout.setContentsMargins(0,0,0,0);layout.setSpacing(0)
         side=QFrame();side.setObjectName('sidebar');side.setFixedWidth(242); sl=QVBoxLayout(side);sl.setContentsMargins(22,32,22,24);sl.setSpacing(16)
         brand=QLabel('◉  听课');brand.setObjectName('brand');sl.addWidget(brand);sl.addWidget(QLabel('L I S T E N O T E'))
         sl.addSpacing(18);sl.addWidget(button('＋  导入课堂录音',self.import_file,True));sl.addWidget(button('●  开始录音',self.record))
         sl.addSpacing(10);sl.addWidget(QLabel('我的课堂'));self.search=QLineEdit();self.search.setPlaceholderText('搜索课堂…');self.search.textChanged.connect(self.refresh);sl.addWidget(self.search)
         self.history=QListWidget();self.history.itemClicked.connect(self.select);sl.addWidget(self.history,1)
-        sl.addWidget(button('打开笔记文件夹',lambda:os.startfile(str(DATA))));sl.addWidget(button('关于与使用说明',self.about));sl.addWidget(QLabel('● 本地处理 · 无需登录'))
+        self.ai_settings_btn=button('AI 模型设置',self.ai_settings);sl.addWidget(self.ai_settings_btn)
+        sl.addWidget(button('打开笔记文件夹',lambda:os.startfile(str(DATA))));sl.addWidget(button('关于与使用说明',self.about));sl.addWidget(QLabel('● 转写离线 · AI 可选'))
         layout.addWidget(side)
         main=QWidget();ml=QVBoxLayout(main);ml.setContentsMargins(38,30,38,24);ml.setSpacing(15);layout.addWidget(main,1)
-        top=QHBoxLayout();tag=QLabel('你的课堂，值得被好好记住。');tag.setObjectName('muted');top.addWidget(tag);top.addStretch();badge=QLabel('  OFFLINE EDITION  /  1.0  ');badge.setObjectName('badge');top.addWidget(badge);ml.addLayout(top)
+        top=QHBoxLayout();tag=QLabel('你的课堂，值得被好好记住。');tag.setObjectName('muted');top.addWidget(tag);top.addStretch();badge=QLabel('  LOCAL + AI  /  1.1  ');badge.setObjectName('badge');top.addWidget(badge);ml.addLayout(top)
         self.title=QLineEdit('新的一课，从这里开始');self.title.setObjectName('title');self.title.editingFinished.connect(self.save);ml.addWidget(self.title)
         self.subtitle=QLabel('拖入录音，留住知识。支持 MP3 / M4A / WAV / MP4 等格式。');self.subtitle.setObjectName('muted');ml.addWidget(self.subtitle)
         hero=QFrame();hero.setObjectName('hero');hl=QVBoxLayout(hero);hl.setContentsMargins(24,15,24,20)
@@ -100,7 +110,9 @@ class Window(QMainWindow):
         self.pause=button('暂停录音',self.pause_record);self.pause.hide();controls.addWidget(self.pause)
         self.mark=button('标记重点',self.mark_record);self.mark.hide();controls.addWidget(self.mark)
         controls.addStretch();controls.addWidget(button('打开原始录音',self.open_audio));hl.addLayout(controls);ml.addWidget(hero)
-        tools=QHBoxLayout();self.tabs=QTabBar();self.tabs.addTab('转写原文');self.tabs.addTab('课堂摘录');self.tabs.addTab('我的笔记');self.tabs.currentChanged.connect(self.change_tab);tools.addWidget(self.tabs);tools.addStretch()
+        airow=QHBoxLayout();self.ai_label=QLabel();self.ai_label.setObjectName('muted');self.ai_label.setWordWrap(True);airow.addWidget(self.ai_label,1)
+        self.ai_btn=button('生成 AI 总结',self.summarize,True);airow.addWidget(self.ai_btn);ml.addLayout(airow);self.update_ai_label()
+        tools=QHBoxLayout();self.tabs=QTabBar();self.tabs.addTab('转写原文');self.tabs.addTab('课堂摘录');self.tabs.addTab('AI 总结');self.tabs.addTab('我的笔记');self.tabs.currentChanged.connect(self.change_tab);tools.addWidget(self.tabs);tools.addStretch()
         self.export_btn=button('导出资料  ↗',self.export);tools.addWidget(self.export_btn);ml.addLayout(tools)
         self.editor=QPlainTextEdit();self.editor.setPlaceholderText('文字会在转写过程中逐段出现。\n\n你可以直接修改识别结果，补充课堂笔记。所有修改会自动保存。');self.editor.textChanged.connect(self.schedule_save);ml.addWidget(self.editor,1)
         foot=QHBoxLayout();self.count=QLabel('0 字');self.count.setObjectName('muted');foot.addWidget(self.count);foot.addStretch();self.saved=QLabel('自动保存 · 本地笔记');self.saved.setObjectName('muted');foot.addWidget(self.saved);ml.addLayout(foot)
@@ -108,7 +120,46 @@ class Window(QMainWindow):
         self.clock=QTimer(self);self.clock.timeout.connect(self.tick_record)
         self.refresh()
     def about(self):
-        QMessageBox.information(self,'关于听课','听课 Listenote 1.0\n\n本地 Whisper large-v3-turbo 转写，无需账号、无需联网。\n支持 CPU，长录音处理速度取决于电脑性能。\n\n课堂摘录是按时间及关键词提取原文，不是大模型总结。\n录音前请遵守课堂要求并取得必要同意。\n\n导出：TXT / Markdown / Word / PDF / SRT。\n请将整个软件文件夹分享给同学。')
+        QMessageBox.information(self,'关于听课','听课 Listenote 1.1\n\n本地 Whisper large-v3-turbo 转写，无需账号、无需联网。\nAI 总结可选本地 Ollama 开源模型或自定义兼容 API。\n本地总结需自行安装 Ollama 并下载模型；远程 API 会发送原文，可能产生费用。\n\n课堂摘录保留原文，AI 总结单独保存；请核对 AI 输出。\n录音前请遵守课堂要求并取得必要同意。\n\n导出：TXT / Markdown / Word / PDF / SRT。')
+    def update_ai_label(self):
+        mode='Ollama' if self.ai_config['provider']=='ollama' else '自定义 API'
+        self.ai_label.setText('AI 总结 · '+mode+' · '+(self.ai_config.get('model') or '请先在左侧选择模型'))
+    def ai_settings(self):
+        if self.job or self.rec:return
+        dialog=AISettingsDialog(self.ai_config,self.ai_key,self)
+        if dialog.exec()!=QDialog.Accepted:return
+        config=dialog.config()
+        try:
+            folder=DATA/'settings';folder.mkdir(exist_ok=True)
+            target=folder/'ai.json';tmp=target.with_suffix('.tmp')
+            tmp.write_text(json.dumps(config,ensure_ascii=False,indent=2),'utf8');tmp.replace(target)
+        except OSError as exc:
+            QMessageBox.warning(self,'设置未保存','无法保存模型设置：'+str(exc));return
+        self.ai_config=config;self.ai_key=dialog.key.text().strip();self.update_ai_label()
+    def summarize(self):
+        if self.job or self.rec:return
+        if not self.current or not self.current.get('transcript','').strip():
+            QMessageBox.information(self,'需要课堂原文','请先导入录音并转写，再生成 AI 总结。');return
+        self.save()
+        try:check_config(self.ai_config)
+        except ValueError:
+            self.ai_settings()
+            try:check_config(self.ai_config)
+            except ValueError:return
+        if not is_local(self.ai_config):
+            if QMessageBox.question(self,'发送原文到模型服务',
+                '将把当前课堂转写原文发送到：\n'+self.ai_config['url']+'\n模型：'+self.ai_config['model']+
+                '\n\n服务商可能收取费用。是否继续？',QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes:return
+        if self.current.get('ai_summary') and QMessageBox.question(self,'重新生成总结','成功后将替换现有 AI 总结，是否继续？',QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes:return
+        self.job=SummaryWorker(self.ai_config,self.ai_key,self.current['transcript'])
+        self.job.progress.connect(self.progress);self.job.finished_job.connect(self.ai_done)
+        self.job.failed.connect(self.error);self.job.cancelled.connect(lambda:self.status.setText('已取消 AI 总结，保留原有内容'))
+        self.job.finished.connect(self.release_job);self.start.setEnabled(False);self.ai_btn.setEnabled(False);self.ai_settings_btn.setEnabled(False)
+        self.stop.show();self.bar.setRange(0,0);self.change_tab(self.tabs.currentIndex());self.status.setText('正在连接 AI 模型…');self.job.start()
+    def ai_done(self,text):
+        self.current['ai_summary']=text
+        self.current['ai_metadata']={'model':self.ai_config['model'],'provider':self.ai_config['provider'],'generated_at':time.strftime('%Y-%m-%d %H:%M'),'source_sha256':hashlib.sha256(self.current['transcript'].encode('utf8')).hexdigest()}
+        self.save();self.tabs.setCurrentIndex(2);self.change_tab(2);self.status.setText('AI 总结已保存 · 请结合原文核对')
     def refresh(self):
         self.history.clear()
         for p in sorted(DATA.glob('*.json'),key=lambda x:x.stat().st_mtime,reverse=True):
@@ -135,10 +186,12 @@ class Window(QMainWindow):
             if p.is_file():self.new(p)
     def change_tab(self,index):
         if not hasattr(self,'editor'):return
-        self.editor.blockSignals(True);self.editor.setPlainText((self.current or {}).get(['transcript','summary','notes'][index],''));self.editor.blockSignals(False)
-        self.editor.setReadOnly(bool(self.job) and index<2);self.count.setText(f'{len(self.editor.toPlainText())} 字')
+        self.editor.blockSignals(True);self.editor.setPlainText((self.current or {}).get(TAB_KEYS[index],''));self.editor.blockSignals(False)
+        self.editor.setReadOnly(bool(self.job) and index<3);self.count.setText(f'{len(self.editor.toPlainText())} 字')
     def schedule_save(self):
-        if self.current:self.current[['transcript','summary','notes'][self.tabs.currentIndex()]]=self.editor.toPlainText()
+        if self.current:
+            self.current[TAB_KEYS[self.tabs.currentIndex()]]=self.editor.toPlainText()
+            if self.tabs.currentIndex()==0 and self.current.get('ai_summary'):self.status.setText('原文已修改，已有 AI 总结可能需要重新生成')
         self.count.setText(f'{len(self.editor.toPlainText())} 字');self.timer.start(700)
     def save(self):
         if not self.current:return
@@ -147,9 +200,10 @@ class Window(QMainWindow):
     def transcribe(self):
         if self.job or self.rec:return
         if not self.current:self.import_file();return
-        if self.current['transcript'] and QMessageBox.question(self,'重新转写','重新转写将替换这节课的原文和摘录，是否继续？')!=QMessageBox.Yes:return
+        if self.current['transcript'] and QMessageBox.question(self,'重新转写','重新转写将替换这节课的原文、摘录并清除已有 AI 总结，是否继续？')!=QMessageBox.Yes:return
+        self.current['ai_summary']='';self.current.pop('ai_metadata',None)
         self.current['segments']=[];self.current['transcript']='';self.current['summary']='';self.tabs.setCurrentIndex(0);self.change_tab(0)
-        self.job=Worker(self.current['audio'],['chinese','english','auto'][self.lang.currentIndex()]);self.job.segment.connect(self.add_segment);self.job.progress.connect(self.progress);self.job.finished_job.connect(self.done);self.job.failed.connect(self.error);self.job.finished.connect(self.release_job);self.start.setEnabled(False);self.stop.show();self.editor.setReadOnly(True);self.bar.setRange(0,0);self.job.start()
+        self.job=Worker(self.current['audio'],['chinese','english','auto'][self.lang.currentIndex()]);self.job.segment.connect(self.add_segment);self.job.progress.connect(self.progress);self.job.finished_job.connect(self.done);self.job.failed.connect(self.error);self.job.finished.connect(self.release_job);self.start.setEnabled(False);self.ai_btn.setEnabled(False);self.ai_settings_btn.setEnabled(False);self.stop.show();self.editor.setReadOnly(True);self.bar.setRange(0,0);self.job.start()
     def add_segment(self,s):
         self.current['segments'].append(s);self.current['transcript']+='['+stamp(s['start'])+'] '+s['text']+'\n\n';self.change_tab(self.tabs.currentIndex());self.save()
     def progress(self,n,text):
@@ -158,10 +212,10 @@ class Window(QMainWindow):
     def done(self,text):
         self.current['summary']=extract(self.current['segments']);self.save();self.status.setText(text);self.bar.setRange(0,100);self.change_tab(self.tabs.currentIndex())
     def error(self,text):self.status.setText('处理未完成，已保留现有文字');QMessageBox.warning(self,'需要检查',text)
-    def release_job(self):self.job.deleteLater();self.job=None;self.start.setEnabled(True);self.stop.hide();self.editor.setReadOnly(False);self.bar.setRange(0,100)
+    def release_job(self):self.job.deleteLater();self.job=None;self.start.setEnabled(True);self.ai_btn.setEnabled(True);self.ai_settings_btn.setEnabled(True);self.stop.hide();self.editor.setReadOnly(False);self.bar.setRange(0,100)
     def cancel(self):
         if self.rec:self.finish_record()
-        elif self.job:self.job.cancel=True;self.status.setText('将在当前片段处理完成后停止…')
+        elif self.job:self.job.cancel=True;self.status.setText('将在当前请求或片段处理完成后停止，不保存新的 AI 总结…')
     def record(self):
         if self.job or self.rec:return
         try:
@@ -170,7 +224,7 @@ class Window(QMainWindow):
             self.wav=wave.open(str(p),'wb');self.wav.setnchannels(1);self.wav.setsampwidth(2);self.wav.setframerate(16000);self.frames=0;self.rec_paused=False
             def callback(data,frames,timing,status):
                 if not self.rec_paused:self.wav.writeframes(bytes(data));self.frames+=frames
-            self.rec=sd.RawInputStream(samplerate=16000,channels=1,dtype='int16',callback=callback);self.rec.start();self.clock.start(500);self.stop.setText('结束录音');self.stop.show();self.pause.show();self.mark.show();self.start.setEnabled(False)
+            self.rec=sd.RawInputStream(samplerate=16000,channels=1,dtype='int16',callback=callback);self.rec.start();self.clock.start(500);self.stop.setText('结束录音');self.stop.show();self.pause.show();self.mark.show();self.start.setEnabled(False);self.ai_btn.setEnabled(False);self.ai_settings_btn.setEnabled(False)
         except Exception as e:
             if getattr(self,'wav',None):self.wav.close()
             self.rec=None;self.error('无法开始录音，请检查麦克风连接及权限。\n'+str(e))
@@ -179,7 +233,7 @@ class Window(QMainWindow):
     def mark_record(self):
         self.current['notes']+='['+stamp(self.frames/16000)+'] 课堂重点\n';self.save();self.change_tab(self.tabs.currentIndex())
     def finish_record(self):
-        self.rec.stop();self.rec.close();self.rec=None;self.wav.close();self.clock.stop();self.stop.hide();self.stop.setText('停止任务');self.pause.hide();self.mark.hide();self.start.setEnabled(True);self.status.setText('录音已保存，点击开始转写');self.save()
+        self.rec.stop();self.rec.close();self.rec=None;self.wav.close();self.clock.stop();self.stop.hide();self.stop.setText('停止任务');self.pause.hide();self.mark.hide();self.start.setEnabled(True);self.ai_btn.setEnabled(True);self.ai_settings_btn.setEnabled(True);self.status.setText('录音已保存，点击开始转写');self.save()
     def open_audio(self):
         if self.current and Path(self.current['audio']).exists():os.startfile(self.current['audio'])
     def export(self):
@@ -191,18 +245,26 @@ class Window(QMainWindow):
         try:export(self.current,Path(path));self.status.setText('已导出：'+Path(path).name)
         except Exception as e:self.error('导出失败：'+str(e))
     def closeEvent(self,event):
-        if self.rec or self.job:QMessageBox.information(self,'任务进行中','请先结束录音或停止转写，再关闭软件。');event.ignore();return
+        if self.rec or self.job:QMessageBox.information(self,'任务进行中','请先结束录音或停止转写 / AI 总结，再关闭软件。');event.ignore();return
         self.save();event.accept()
 def export(data,path):
-    blocks=[data['title'],data['date'],'课堂摘录',data['summary'],'转写原文',data['transcript'],'我的笔记',data['notes']]
+    ai=data.get('ai_summary','')
+    metadata=data.get('ai_metadata',{})
+    ai_note=('模型：'+metadata.get('model','未知')+' · '+metadata.get('generated_at','')+'\nAI 生成内容，请结合原文核对。') if ai else ''
+    if ai and metadata.get('source_sha256')!=hashlib.sha256(data['transcript'].encode('utf8')).hexdigest():ai_note+='\n原文已修改，此总结可能需要重新生成。'
+    blocks=[data['title'],data['date'],'课堂摘录',data['summary']]
+    if ai:blocks+=['AI 总结',ai_note,ai]
+    blocks+=['转写原文',data['transcript'],'我的笔记',data['notes']]
     text='\n\n'.join(blocks)
     if path.suffix=='.docx':
         from docx import Document
         from docx.shared import Pt
         from docx.oxml.ns import qn
         doc=Document();style=doc.styles['Normal'];style.font.name='Microsoft YaHei';style._element.rPr.rFonts.set(qn('w:eastAsia'),'Microsoft YaHei');style.font.size=Pt(11);doc.add_heading(data['title'],0);doc.add_paragraph(data['date'])
-        for title,key in [('课堂摘录','summary'),('转写原文','transcript'),('我的笔记','notes')]:
+        sections=[('课堂摘录','summary')]+([('AI 总结','ai_summary')] if ai else [])+[('转写原文','transcript'),('我的笔记','notes')]
+        for title,key in sections:
             doc.add_heading(title,1)
+            if key=='ai_summary':doc.add_paragraph(ai_note)
             for line in data[key].splitlines():doc.add_paragraph(line)
         doc.save(str(path))
     elif path.suffix=='.pdf':
