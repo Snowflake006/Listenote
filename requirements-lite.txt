@@ -1,0 +1,6 @@
+PySide6-Essentials==6.8.3
+faster-whisper==1.2.1
+av==16.0.1
+python-docx==1.2.0
+sounddevice==0.5.6
+requests>=2.32,<3

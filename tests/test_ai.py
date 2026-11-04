@@ -65,14 +65,16 @@ class AITests(unittest.TestCase):
         return dict(ai.DEFAULT_CONFIG, provider=provider, url=self.url + ('/v1' if provider == 'api' else ''), model='qwen3:4b')
 
     def test_native_and_compatible_protocols(self):
-        for provider in ['ollama', 'api']:
+        for provider in ['ollama', 'api', 'deepseek']:
             config = self.config(provider)
             self.assertTrue(ai.list_models(config))
             self.assertIn('课堂总结', ai.summarize(config, 'session-secret', '课堂原文'))
             path, body, authorization = Handler.calls[-1]
-            self.assertEqual(path, '/api/chat' if provider == 'ollama' else '/v1/chat/completions')
+            self.assertEqual(path, '/api/chat' if provider == 'ollama' else '/v1/chat/completions' if provider == 'api' else '/chat/completions')
             self.assertEqual(authorization, 'Bearer session-secret')
             self.assertEqual(body['messages'][1]['content'], '课堂原文')
+            if provider == 'deepseek':
+                self.assertEqual(body['thinking'], {'type': 'disabled'})
         self.assertEqual(ai.list_models(self.config()), ['qwen3:4b'])
 
     def test_long_lecture_preserves_tail_and_reduces(self):

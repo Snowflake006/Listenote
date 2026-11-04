@@ -17,3 +17,9 @@ recordings/
 Thumbs.db
 /.test-data/
 /Listenote-Windows-x64-v*.zip
+/.lite-site/
+/.preview/
+/dist/
+/.release/
+/Listenote/Listenote/
+/Listenote/tools/llama/

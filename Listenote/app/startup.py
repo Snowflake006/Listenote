@@ -1,5 +1,15 @@
 import os,sys,traceback,runpy,ctypes
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from runtime_support import bootstrap
+bootstrap(__file__)
+if '--runtime-info' in sys.argv:
+    import importlib.util,json
+    print(json.dumps({'executable':sys.executable,'faster_whisper':bool(importlib.util.find_spec('faster_whisper'))}))
+    raise SystemExit(0)
+if '--data-dir' in sys.argv:
+    i=sys.argv.index('--data-dir')
+    if i+1<len(sys.argv):os.environ['LISTENOTE_DATA']=sys.argv[i+1]
 folder=Path(os.environ.get('LISTENOTE_DATA',str(Path(os.environ.get('LOCALAPPDATA',str(Path(__file__).parent)))/'Listenote')))
 folder.mkdir(parents=True,exist_ok=True)
 try:
