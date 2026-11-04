@@ -2,7 +2,22 @@
 
 Windows 10/11 x64 课堂录音、离线转写、笔记与可选 AI 总结工具。
 
-![Listenote 界面预览](界面预览.png)
+![Listenote 2.0 亮色主题](界面预览.png?v=2.0)
+
+Listenote 2.0 实际界面，截图中的课堂内容为演示数据。
+
+<details>
+<summary>查看暗色主题与界面设置</summary>
+
+暗色主题：
+
+![Listenote 2.0 暗色主题](docs/images/listenote-2-dark.png)
+
+界面设置：支持亮、暗和跟随系统，“界面设置”位于设置列表第一项。
+
+![Listenote 2.0 界面设置](docs/images/listenote-2-appearance.png)
+
+</details>
 
 ## 下载安装
 
