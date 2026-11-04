@@ -4,8 +4,8 @@ using System.IO;
 using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyTitle("Listenote")]
 [assembly: System.Reflection.AssemblyProduct("Listenote")]
-[assembly: System.Reflection.AssemblyVersion("2.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("2.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("2.0.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("2.0.1.0")]
 [assembly: System.Reflection.AssemblyDescription("Listenote 课堂录音与笔记")]
 class Launcher {
  static string Quote(string arg) {

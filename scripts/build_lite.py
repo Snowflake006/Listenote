@@ -112,6 +112,7 @@ def stage():
         f'听课 Listenote {VERSION}\n\n'
         '完整解压后运行 听课.exe，无需安装 Python。\n'
         '首次转写请点击「语音模型与下载」，从国内 ModelScope 一键准备约 148 MB 的语音模型。\n'
+        '也可点击「配置高精度识别」，下载约 1.62 GB 的 Whisper large-v3-turbo 模型，无需安装旧版软件。\n'
         'AI 模型设置支持「一键从国内下载千问模型」，内置推理引擎，无需安装 Ollama。\n'
         '也可选择国内 DeepSeek，填写自己的密钥；地址和模型已预填。远程总结会发送转写原文，可能收费。\n'
         '语音模型和笔记保存在 %LOCALAPPDATA%\\Listenote；API 密钥仅本次运行保留。\n'
@@ -138,10 +139,21 @@ def package():
         for file in sorted(TARGET.rglob('*')):
             if file.is_file() and '__pycache__' not in file.parts and file.suffix not in ('.pyc', '.log'):
                 output.write(file, file.relative_to(TARGET.parent).as_posix())
-    with archive.open('rb') as stream:
-        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-    (dest / 'SHA256.txt').write_text(f'{digest}  {archive.name}\n', encoding='utf8')
-    print(f'{archive.name}: {archive.stat().st_size / 1_000_000:.1f} MB', flush=True)
+    archives=[archive]
+    if '--update' in sys.argv:
+        patch=dest/f'Listenote-Update-from-2.0-v{VERSION}.zip'
+        files=list((TARGET/'app').glob('*.py'))+list((TARGET/'app').glob('*.svg'))
+        files += [TARGET/name for name in ('听课.exe','Launcher.cs','使用说明.txt','THIRD-PARTY.txt')]
+        with zipfile.ZipFile(patch,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as output:
+            for file in sorted(files):output.write(file,file.relative_to(TARGET.parent).as_posix())
+            output.writestr('升级说明.txt',f'Listenote {VERSION} 更新包，仅适用于完整的 2.0.x 软件。\n退出软件后，解压本 ZIP 到原 Listenote 文件夹的上一级目录，合并并覆盖 Listenote 中的同名文件。\n请保留原 runtime 和 tools 文件夹，不要只运行更新包中的 EXE。\n课堂、设置及模型仍位于 %LOCALAPPDATA%\\Listenote，不包含在此更新包内。\n升级后在「设置 → 语音模型与下载 → 配置高精度识别」下载模型。\n')
+        archives.append(patch)
+    checksums=[]
+    for file in archives:
+        with file.open('rb') as stream:digest=hashlib.file_digest(stream,'sha256').hexdigest()
+        checksums.append(f'{digest}  {file.name}\n')
+        print(f'{file.name}: {file.stat().st_size / 1_000_000:.2f} MB',flush=True)
+    (dest/'SHA256.txt').write_text(''.join(checksums),encoding='utf8',newline='\n')
 
 
 if __name__ == '__main__':

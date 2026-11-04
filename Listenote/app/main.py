@@ -52,7 +52,7 @@ class Worker(QThread):
         super().__init__(); self.path=path; self.language=language; self.engine=engine; self.cancel=False;self.legacy_root=legacy_root
     def run(self):
         try:
-            if self.engine == 'lite':
+            if self.engine in ('lite','high'):
                 self.run_lite();return
             root=self.legacy_root or find_legacy_root(ROOT)
             if not root:raise RuntimeError('未找到原版高精度识别文件，请选择原版软件目录。')
@@ -126,17 +126,18 @@ class Worker(QThread):
                 if process.poll() is None:process.terminate();process.wait(timeout=5)
     def run_lite(self):
         from faster_whisper import WhisperModel
-        self.progress.emit(0,'正在加载轻量语音模型…')
-        model=WhisperModel(str(speech_folder(DATA)),device='cpu',compute_type='int8',
+        high=self.engine=='high';mode='high' if high else 'lite'
+        self.progress.emit(0,'正在加载高精度语音模型…' if high else '正在加载轻量语音模型…')
+        model=WhisperModel(str(speech_folder(DATA,mode)),device='cpu',compute_type='int8',
                            cpu_threads=max(1,min(8,(os.cpu_count() or 4)//2)),local_files_only=True)
         language={'chinese':'zh','english':'en','auto':None}[self.language]
-        segments,info=model.transcribe(self.path,language=language,beam_size=3,vad_filter=True)
+        segments,info=model.transcribe(self.path,language=language,beam_size=5 if high else 3,vad_filter=True)
         for segment in segments:
             if self.cancel:self.finished_job.emit('已停止，完成的文字已保存');return
             self.segment.emit({'start':segment.start,'end':segment.end,'text':to_simplified(segment.text.strip())})
             self.progress.emit(min(100,int(segment.end/max(info.duration,.01)*100)),
                                f'已处理 {stamp(segment.end)} / {stamp(info.duration)}')
-        self.finished_job.emit('转写完成 · 轻量语音识别')
+        self.finished_job.emit('转写完成 · 高精度语音识别' if high else '转写完成 · 轻量语音识别')
 class WaveArt(QWidget):
     def __init__(self): super().__init__(); self.setMinimumHeight(95)
     def paintEvent(self,event):
@@ -226,7 +227,8 @@ class Window(QMainWindow):
         self.lang=QComboBox();self.lang.addItems(['中文','English','自动识别']);row.addWidget(self.lang);row.addStretch()
         self.engine=QComboBox()
         if transcription_available('lite'):self.engine.addItem('轻量识别 · 国内下载','lite')
-        self.engine.addItem('高精度识别 · 原版模型' if self.legacy_root else '高精度识别 · 选择原版目录','legacy')
+        if transcription_available('lite'):self.engine.addItem('高精度识别 · 本地模型' if speech_ready(DATA,'high') else '高精度识别 · 软件内配置','high')
+        if self.legacy_root:self.engine.addItem('高精度识别 · 兼容旧版','legacy')
         if '--high-accuracy-preview' in sys.argv:self.engine.setCurrentIndex(self.engine.findData('legacy'))
         if self.engine.count()==0:self.engine.addItem('需要完整轻量运行环境','lite')
         row.addWidget(self.engine)
@@ -424,11 +426,18 @@ class Window(QMainWindow):
             box.button(QMessageBox.Yes).setText('查看新版');box.button(QMessageBox.Cancel).setText('稍后')
             box.finished.connect(lambda code:QDesktopServices.openUrl(QUrl(release['url'])) if code==QMessageBox.Yes else None)
             self.update_dialog=box;box.show()
-    def speech_settings(self,parent=None):
+    def speech_settings(self,parent=None,model='lite'):
         if self.job or self.rec:return False
-        if speech_ready(DATA):return True
+        if speech_ready(DATA,model):return True
         self.settings(1)
+        self.settings_page.panels[1].focus_model(model)
         return False
+    def speech_configured(self,model):
+        index=self.engine.findData(model)
+        if index>=0:
+            if model=='high':self.engine.setItemText(index,'高精度识别 · 本地模型')
+            self.engine.setCurrentIndex(index)
+        self.status.setText('高精度识别已配置，可离线转写。' if model=='high' else '轻量识别已配置，可离线转写。')
     def update_ai_label(self):
         mode={'local':'本地千问 · 国内下载','ollama':'Ollama','deepseek':'国内 DeepSeek','api':'自定义 API'}.get(self.ai_config['provider'],'自定义 API')
         self.ai_label.setText('AI 总结 · '+mode+' · '+(self.ai_config.get('model') or '请在设置中选择模型'))
@@ -689,12 +698,12 @@ class Window(QMainWindow):
             settings=DATA/'settings';settings.mkdir(exist_ok=True)
             (settings/'speech.json').write_text(json.dumps({'legacy_root':folder},ensure_ascii=False),'utf8')
             self.engine.setItemText(self.engine.findData('legacy'),'高精度识别 · 原版模型')
-        if engine=='lite' and not transcription_available(engine):
+        if engine in ('lite','high') and not transcription_available('lite'):
             self.error('当前启动环境缺少转写组件。请关闭软件，从完整轻量版目录启动；不要只复制 app 文件。');return
         if not Path(self.current['audio']).is_file():
             self.error('原始录音文件不存在，请重新导入录音。');return
-        if engine=='lite' and not speech_ready(DATA):
-            if not self.speech_settings():return
+        if engine in ('lite','high') and not speech_ready(DATA,engine):
+            if not self.speech_settings(model=engine):return
         if self.current['transcript'] and QMessageBox.question(self,'重新转写','重新转写将替换这节课的原文、摘录并清除已有 AI 总结，是否继续？')!=QMessageBox.Yes:return
         self.current['ai_summary']='';self.current.pop('ai_metadata',None)
         self.current['segments']=[];self.current['transcript']='';self.current['summary']='';self.tabs.setCurrentIndex(0);self.change_tab(0)

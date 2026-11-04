@@ -13,6 +13,15 @@ from ai_summary import Cancelled
 
 SPEECH_REPO = 'Systran/faster-whisper-base'
 SPEECH_FILES = {'config.json', 'model.bin', 'tokenizer.json', 'vocabulary.txt'}
+SPEECH_MODELS = {
+    'lite': {'repo': SPEECH_REPO, 'folder': 'faster-whisper-base',
+             'files': SPEECH_FILES, 'label': '轻量识别'},
+    'high': {'repo': 'mobiuslabsgmbh/faster-whisper-large-v3-turbo',
+             'revision': '2c8b6212cab564a21146bddc3aa503d2b1173d7b',
+             'folder': 'faster-whisper-large-v3-turbo',
+             'files': {'config.json','model.bin','tokenizer.json','vocabulary.json','preprocessor_config.json'},
+             'label': '高精度识别'},
+}
 OLLAMA_URL = 'http://127.0.0.1:11434'
 OLLAMA_INSTALLER = 'https://ollama.com/download/OllamaSetup.exe'
 LOCAL_MODELS = [('通义千问 Qwen3 · 轻量（约 523 MB）', 'qwen3:0.6b'),
@@ -68,41 +77,46 @@ def download_file(url, target, progress, cancel, expected_sha=None, expected_siz
     part.replace(target)
 
 
-def speech_folder(data):
-    return Path(data) / 'models' / 'faster-whisper-base'
+def speech_folder(data, model='lite'):
+    return Path(data) / 'models' / SPEECH_MODELS[model]['folder']
 
 
-def speech_ready(data):
-    folder = speech_folder(data)
+def speech_ready(data, model='lite'):
+    folder = speech_folder(data,model)
     try:
         manifest = json.loads((folder / 'ready.json').read_text('utf8'))
-        return set(manifest) == SPEECH_FILES and all(
+        return isinstance(manifest,dict) and set(manifest) == SPEECH_MODELS[model]['files'] and all(
             (folder / name).stat().st_size == meta['size'] for name, meta in manifest.items())
     except (OSError, ValueError, TypeError, KeyError):
         return False
 
 
-def prepare_speech(data, progress, cancel):
+def prepare_speech(data, progress, cancel, model='lite'):
+    spec=SPEECH_MODELS[model]
     progress(-1, '正在连接国内 ModelScope 下载源…')
-    response = requests.get(f'https://modelscope.cn/api/v1/models/{SPEECH_REPO}/repo/files',
-                            params={'Revision': 'master', 'Recursive': 'true'}, timeout=(15, 30))
+    response = requests.get(f'https://modelscope.cn/api/v1/models/{spec["repo"]}/repo/files',
+                            params={'Revision': spec.get('revision','master'), 'Recursive': 'true'}, timeout=(15, 30))
     response.raise_for_status()
-    files = [item for item in response.json()['Data']['Files'] if item['Path'] in SPEECH_FILES]
-    if {item['Path'] for item in files} != SPEECH_FILES:
+    files = [item for item in response.json()['Data']['Files'] if item['Path'] in spec['files']]
+    if len(files)!=len(spec['files']) or {item['Path'] for item in files} != spec['files']:
         raise RuntimeError('国内下载源暂时没有完整模型，请稍后重试。')
-    folder = speech_folder(data)
+    # Validate manifest metadata before allocating large downloads or installing files.
+    if any(not isinstance(item.get('Size'),int) or item['Size']<=0 or
+           len(item.get('Sha256',''))!=64 or not item.get('Revision') for item in files):
+        raise RuntimeError('下载源返回了无效的模型校验信息，请稍后重试。')
+    folder = speech_folder(data,model)
     manifest = {}
     total = sum(item['Size'] for item in files)
     completed = 0
     for item in files:
         check_cancel(cancel)
         name, size = item['Path'], item['Size']
-        url = (f'https://modelscope.cn/api/v1/models/{SPEECH_REPO}/repo?Revision='
+        url = (f'https://modelscope.cn/api/v1/models/{spec["repo"]}/repo?Revision='
                f'{quote(item["Revision"], safe="")}&FilePath={quote(name, safe="")}')
         before = completed
         def report(percent, text):
             current = size * max(percent, 0) / 100
-            progress(int((before + current) * 100 / total), f'正在下载语音模型 · {name} · {text}')
+            progress(int((before + current) * 100 / total), f'正在配置{spec["label"]} · {name} · {text}')
         download_file(url, folder / name, report, cancel, item['Sha256'], size)
         manifest[name] = {'size': size, 'sha256': item['Sha256']}
         completed += size
@@ -110,7 +124,7 @@ def prepare_speech(data, progress, cancel):
     temp = folder / 'ready.tmp'
     temp.write_text(json.dumps(manifest), 'utf8')
     temp.replace(folder / 'ready.json')
-    progress(100, '语音模型已准备好，之后可离线转写。')
+    progress(100, spec['label']+'模型已准备好，之后可离线转写。')
 
 
 def ollama_available():

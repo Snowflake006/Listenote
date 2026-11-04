@@ -73,7 +73,7 @@ class InlineAISettings(AISettingsDialog):
 class InlineSpeechSettings(SpeechSetupDialog):
     def done(self, result):
         if result == QDialog.Accepted:
-            self.status.setText('✓ 语音模型已准备好，可以返回课堂开始转写。')
+            self.status.setText('✓ '+('高精度' if self.selected_mode=='high' else '轻量')+'语音模型已准备好，可以返回课堂开始转写。')
         else:
             self.parent_page.owner.return_to_classroom()
 
@@ -140,6 +140,7 @@ class SettingsPage(QWidget):
             if index==0:panel=InlineAISettings(self.owner,self.data)
             elif index==1:
                 panel=InlineSpeechSettings(self.data,self.owner);panel.parent_page=self
+                panel.model_ready.connect(self.owner.speech_configured)
             elif index==3:
                 panel=QWidget();box=QVBoxLayout(panel);box.setAlignment(Qt.AlignTop)
                 box.addWidget(QLabel('界面设置'));box.addWidget(QLabel('主题 · 更改后立即生效'))
@@ -157,6 +158,7 @@ class SettingsPage(QWidget):
             scroll.setWidgetResizable(True);scroll.setWidget(panel)
             self.details.addWidget(scroll);self.panels[index]=panel
         panel=self.panels[index]
+        if index==1 and not panel.worker:panel.refresh_models()
         if index in (0,1):panel.setEnabled(not self.owner.job and not self.owner.rec)
         scroll=panel.parentWidget().parentWidget()
         self.details.setCurrentWidget(scroll)

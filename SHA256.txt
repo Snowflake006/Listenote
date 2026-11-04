@@ -1,1 +1,2 @@
-685561107e3c934c13c5899f300e4a572e686da1aaa15206d0e710d367389610  Listenote-Windows-x64-v2.0.0.zip
+32f86c3a5eba593f5d35eece5f68432a061fe71f9551996cad5aef6a17c3c3d0  Listenote-Windows-x64-v2.0.1.zip
+21a70929f5956c1812e8c04d923c45e2e9d9e03f5d7f6b22d32ff13a76cfecf8  Listenote-Update-from-2.0-v2.0.1.zip

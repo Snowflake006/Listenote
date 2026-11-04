@@ -7,7 +7,7 @@ Windows 10/11 x64 课堂录音、离线转写、笔记与可选 AI 总结工具�
 Listenote 2.0 实际界面，截图中的课堂内容为演示数据。
 
 <details>
-<summary>查看暗色主题与界面设置</summary>
+<summary>查看暗色主题、界面设置与语音模型配置</summary>
 
 暗色主题：
 
@@ -17,11 +17,17 @@ Listenote 2.0 实际界面，截图中的课堂内容为演示数据。
 
 ![Listenote 2.0 界面设置](docs/images/listenote-2-appearance.png)
 
+语音模型配置：可在软件内分别配置轻量识别与高精度识别。
+
+![Listenote 2.0.1 语音模型配置](docs/images/listenote-2-speech.png)
+
 </details>
 
 ## 下载安装
 
-前往 [Releases](https://github.com/Snowflake006/Listenote/releases/latest) 下载 `Listenote-Windows-x64-v2.0.0.zip`，完整解压到新文件夹，双击 `Listenote/听课.exe`。无需安装 Python。
+前往 [Releases](https://github.com/Snowflake006/Listenote/releases/latest) 下载 `Listenote-Windows-x64-v2.0.1.zip`，完整解压到新文件夹，双击 `Listenote/听课.exe`。无需安装 Python。
+
+已有完整 2.0 的用户可下载 `Listenote-Update-from-2.0-v2.0.1.zip` 小更新包，退出软件后解压到原 `Listenote` 文件夹的上一级目录，合并并覆盖同名文件，保留原有 `runtime` 和 `tools`。1.x 用户请下载完整包。
 
 2.0 使用轻量运行库，清理未使用的 Qt 开发工具、QML 和测试组件，采用 ZIP 最高压缩级别。安装包包含转写和本地 AI 的运行引擎；语音和 AI 模型通过软件内国内下载入口按需准备，模型下载后可以离线使用。首次使用需要联网下载模型，安装包不附带模型权重。
 
@@ -30,7 +36,7 @@ Listenote 2.0 实际界面，截图中的课堂内容为演示数据。
 使用同一发布页的 `SHA256.txt` 校验下载完整性：
 
 ```powershell
-Get-FileHash .\Listenote-Windows-x64-v2.0.0.zip -Algorithm SHA256
+Get-FileHash .\Listenote-Windows-x64-v2.0.1.zip -Algorithm SHA256
 ```
 
 ## 2.0 功能
@@ -48,7 +54,12 @@ Get-FileHash .\Listenote-Windows-x64-v2.0.0.zip -Algorithm SHA256
 
 ## 首次准备模型
 
-在“设置 → 语音模型与下载”下载轻量语音模型（约 148 MB），之后选择“轻量识别 · 国内下载”开始转写。轻量模型与旧版 large-v3-turbo 精度不同，请核对重要内容。原版高精度模式需要完整旧版运行环境和模型，2.0 精简包不附带这些组件。
+在“设置 → 语音模型与下载”选择需要的配置：
+
+- **配置轻量识别**：下载约 148 MB 的 Whisper Base 模型，适合快速整理。
+- **配置高精度识别**：从国内 ModelScope 下载约 1.62 GB 的 Whisper large-v3-turbo 模型，复用内置引擎，无需再下载旧版软件、安装 Python 或 PyTorch。
+
+两个入口均支持暂停、断点续传及文件校验。配置完成后会自动选中对应识别模式，返回课堂点击“开始转写”即可；此后可离线使用。模型保存在 `%LOCALAPPDATA%\Listenote\models`，不增加软件安装包体积。高精度模式建议至少 8 GB 内存和 3 GB 以上可用磁盘空间，处理速度取决于电脑。已保留旧版环境的用户仍可使用兼容旧版模式。
 
 在“设置 → AI 模型设置”选择内置本地千问，通过国内 ModelScope 下载模型，无需另外安装 Ollama。也可接入已运行的 Ollama，或填写自定义服务的 Base URL、API 密钥及模型名。远程 AI 只有在主动确认后发送当前课堂原文，服务商可能收费。密钥只保留在本次运行内。
 

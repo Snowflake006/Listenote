@@ -37,8 +37,8 @@ class FixTests(unittest.TestCase):
         from main import Window
         app=QApplication.instance() or QApplication([])
         window=Window()
-        self.assertGreaterEqual(window.engine.findData('legacy'),0)
-        self.assertIn('高精度识别',window.engine.itemText(window.engine.findData('legacy')))
+        self.assertGreaterEqual(window.engine.findData('high'),0)
+        self.assertIn('高精度识别',window.engine.itemText(window.engine.findData('high')))
         window.close()
 
     def test_heading_only_summary_is_retried_not_saved(self):
